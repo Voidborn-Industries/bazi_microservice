@@ -10,6 +10,6 @@ region = "YOUR_AWS_REGION"  # 例如: us-east-1, ap-northeast-1
 [lambda]
 function_name = "bazi-microservice"
 layer_name = "bazi-dependencies"
-memory_size = 512
-timeout = 30
+memory_size = 1024
+timeout = 900
 

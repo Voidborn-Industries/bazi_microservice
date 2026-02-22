@@ -15,6 +15,16 @@ on:
 
 env:
   PYTHON_VERSION: '3.14'
+  FUNCTION_NAME: 'bazi-microservice'
+  LAYER_NAME: 'bazi-dependencies'
+  API_NAME: 'bazi-api'
+  LAMBDA_TIMEOUT: '900'
+  LAMBDA_MEMORY: '1024'
+  LAMBDA_HANDLER: 'app.lambda_handler'
+  LAMBDA_DESCRIPTION: 'Bazi Chinese fortune-telling microservice'
+  LAYER_DESCRIPTION: 'Bazi microservice dependencies'
+  API_DESCRIPTION: 'Bazi microservice HTTP API'
+  IAM_POLICY_ARN: 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
 
 jobs:
   deploy:
@@ -76,8 +86,8 @@ jobs:
           
           echo "发布 Lambda Layer..."
           LAYER_ARN=$(aws lambda publish-layer-version \
-            --layer-name "bazi-dependencies" \
-            --description "Bazi microservice dependencies" \
+            --layer-name "${{ env.LAYER_NAME }}" \
+            --description "${{ env.LAYER_DESCRIPTION }}" \
             --compatible-runtimes python${{ env.PYTHON_VERSION }} \
             --zip-file fileb://layer.zip \
             --region "${{ secrets.AWS_REGION }}" \
@@ -108,7 +118,7 @@ jobs:
         id: check-function
         continue-on-error: true
         run: |
-          if aws lambda get-function --function-name "bazi-microservice" --region "${{ secrets.AWS_REGION }}" > /dev/null 2>&1; then
+          if aws lambda get-function --function-name "${{ env.FUNCTION_NAME }}" --region "${{ secrets.AWS_REGION }}" > /dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "函数已存在，将更新"
           else
@@ -119,7 +129,7 @@ jobs:
       - name: 🎭 创建 IAM 角色 (如果需要)
         if: steps.check-function.outputs.exists != 'true'
         run: |
-          ROLE_NAME="bazi-microservice-role"
+          ROLE_NAME="${{ env.FUNCTION_NAME }}-role"
           
           echo "检查角色是否存在..."
           if ! aws iam get-role --role-name "$ROLE_NAME" > /dev/null 2>&1; then
@@ -137,11 +147,11 @@ jobs:
             aws iam create-role \
               --role-name "$ROLE_NAME" \
               --assume-role-policy-document "$TRUST_POLICY" \
-              --description "Bazi microservice Lambda execution role"
+              --description "${{ env.LAMBDA_DESCRIPTION }}"
             
             aws iam attach-role-policy \
               --role-name "$ROLE_NAME" \
-              --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+              --policy-arn "${{ env.IAM_POLICY_ARN }}"
             
             echo "等待角色生效..."
             sleep 10
@@ -160,21 +170,20 @@ jobs:
             aws lambda update-function-code \
               --function-name "${{ env.FUNCTION_NAME }}" \
               --zip-file fileb://bazi-lambda.zip \
-              --region "${{ env.AWS_REGION }}"
+              --region "${{ secrets.AWS_REGION }}"
             
             echo "等待函数更新完成..."
             aws lambda wait function-updated \
               --function-name "${{ env.FUNCTION_NAME }}" \
-              --region "${{ env.AWS_REGION }}"
+              --region "${{ secrets.AWS_REGION }}"
             
             # 更新配置
             aws lambda update-function-configuration \
               --function-name "${{ env.FUNCTION_NAME }}" \
               --layers "$LAYER_ARN" \
-              --timeout 30 \
-              --memory-size 512 \
-              --environment "Variables={STAGE=${{ github.event.inputs.environment || 'prod' }},LOG_LEVEL=INFO}" \
-              --region "${{ env.AWS_REGION }}"
+              --timeout ${{ env.LAMBDA_TIMEOUT }} \
+              --memory-size ${{ env.LAMBDA_MEMORY }} \
+              --region "${{ secrets.AWS_REGION }}"
             
             echo "✅ 函数更新成功"
           else
@@ -186,17 +195,16 @@ jobs:
               --output text)
             
             aws lambda create-function \
-              --function-name "bazi-microservice" \
+              --function-name "${{ env.FUNCTION_NAME }}" \
               --runtime python${{ env.PYTHON_VERSION }} \
               --role "$ROLE_ARN" \
-              --handler "app.lambda_handler" \
+              --handler "${{ env.LAMBDA_HANDLER }}" \
               --zip-file fileb://bazi-lambda.zip \
-              --timeout 30 \
-              --memory-size 512 \
-              --description "Bazi Chinese fortune-telling microservice" \
+              --timeout ${{ env.LAMBDA_TIMEOUT }} \
+              --memory-size ${{ env.LAMBDA_MEMORY }} \
+              --description "${{ env.LAMBDA_DESCRIPTION }}" \
               --layers "$LAYER_ARN" \
               --region "${{ secrets.AWS_REGION }}"
-              --region "${{ env.AWS_REGION }}"
             
             echo "✅ 函数创建成功"
           fi
@@ -206,23 +214,23 @@ jobs:
         run: |
           # 检查 API 是否存在
           API_ID=$(aws apigatewayv2 get-apis \
-            --query "Items[?Name=='bazi-api'].ApiId" \
+            --query "Items[?Name=='${{ env.API_NAME }}'].ApiId" \
             --output text \
-            --region "${{ env.AWS_REGION }}")
+            --region "${{ secrets.AWS_REGION }}")
           
           if [ -z "$API_ID" ]; then
             echo "创建 HTTP API..."
             
             FUNCTION_ARN=$(aws lambda get-function \
               --function-name "${{ env.FUNCTION_NAME }}" \
-              --region "${{ env.AWS_REGION }}" \
+              --region "${{ secrets.AWS_REGION }}" \
               --query 'Configuration.FunctionArn' \
               --output text)
             
             API_ID=$(aws apigatewayv2 create-api \
-              --name "bazi-api" \
+              --name "${{ env.API_NAME }}" \
               --protocol-type HTTP \
-              --description "Bazi microservice HTTP API" \
+              --description "${{ env.API_DESCRIPTION }}" \
               --cors-configuration "AllowOrigins=*,AllowMethods=*,AllowHeaders=*" \
               --query 'ApiId' \
               --output text \
@@ -236,7 +244,7 @@ jobs:
               --payload-format-version 2.0 \
               --query 'IntegrationId' \
               --output text \
-              --region "${{ env.AWS_REGION }}")
+              --region "${{ secrets.AWS_REGION }}")
             
             # 创建路由
             for route in "GET /health" "GET /api/health" "POST /bazi" "POST /api/bazi" "GET /bazi" "GET /shengxiao" "GET /api/shengxiao" "GET /luohou" "GET /api/luohou" "OPTIONS /{proxy+}"; do
@@ -244,12 +252,12 @@ jobs:
                 --api-id "$API_ID" \
                 --route-key "$route" \
                 --target "integrations/$INTEGRATION_ID" \
-                --region "${{ env.AWS_REGION }}" > /dev/null
+                --region "${{ secrets.AWS_REGION }}" > /dev/null
             done
             
             # 授予权限
             ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
-            SOURCE_ARN="arn:aws:execute-api:${{ env.AWS_REGION }}:${ACCOUNT_ID}:${API_ID}/*/*"
+            SOURCE_ARN="arn:aws:execute-api:${{ secrets.AWS_REGION }}:${ACCOUNT_ID}:${API_ID}/*/*"
             
             aws lambda add-permission \
               --function-name "${{ env.FUNCTION_NAME }}" \
@@ -257,14 +265,14 @@ jobs:
               --action lambda:InvokeFunction \
               --principal apigateway.amazonaws.com \
               --source-arn "$SOURCE_ARN" \
-              --region "${{ env.AWS_REGION }}" > /dev/null 2>&1 || true
+              --region "${{ secrets.AWS_REGION }}" > /dev/null 2>&1 || true
             
             echo "✅ API Gateway 创建成功"
           else
             echo "使用现有 API: $API_ID"
           fi
           
-          API_ENDPOINT="https://${API_ID}.execute-api.${{ env.AWS_REGION }}.amazonaws.com"
+          API_ENDPOINT="https://${API_ID}.execute-api.${{ secrets.AWS_REGION }}.amazonaws.com"
           echo "api_endpoint=$API_ENDPOINT" >> $GITHUB_OUTPUT
           echo "API 端点: $API_ENDPOINT"
 

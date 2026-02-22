@@ -10,6 +10,13 @@ on:
       - master
       - main
 
+env:
+  PYTHON_VERSION: '3.14'
+  COVERAGE_THRESHOLD: '70'
+  PYTEST_ARGS: '-v --tb=short'
+  COVERAGE_REPORT_DIR: 'htmlcov'
+  ARTIFACT_RETENTION_DAYS: '30'
+
 jobs:
   test:
     name: 运行测试
@@ -22,7 +29,7 @@ jobs:
       - name: 🐍 设置 Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
       - name: 📦 安装依赖
@@ -32,11 +39,11 @@ jobs:
 
       - name: 🧪 运行单元测试
         run: |
-          python -m pytest tests/unit -v --tb=short
+          python -m pytest tests/unit ${{ env.PYTEST_ARGS }}
 
       - name: 🔗 运行集成测试
         run: |
-          python -m pytest tests/integration -v --tb=short
+          python -m pytest tests/integration ${{ env.PYTEST_ARGS }}
 
       - name: 📊 运行测试覆盖率
         run: |
@@ -47,8 +54,8 @@ jobs:
         if: always()
         with:
           name: coverage-report
-          path: htmlcov/
-          retention-days: 30
+          path: ${{ env.COVERAGE_REPORT_DIR }}/
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
 
       - name: ✅ 测试总结
         if: always()
