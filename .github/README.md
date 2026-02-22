@@ -59,7 +59,7 @@ python -m pytest tests/ --cov=app --cov-report=term-missing
 | 端点 | 方法 | 功能 | 参数 | 状态 |
 |------|------|------|------|------|
 | `/health` | GET | 健康检查 | 无 | ✅ |
-| `/bazi` | POST | 八字排盘 | year, month, day, hour, isGregorian, isFemale, isLeap | ✅ |
+| `/bazi` | POST | 八字排盘 | year, month, day, hour, isGregorian (默认true公历), isFemale (默认false), isLeap (默认false) | ✅ |
 | `/shengxiao` | GET | 生肖合婚 | zodiac (鼠牛虎兔龙蛇马羊猴鸡狗猪) | ✅ |
 | `/luohou` | GET | 罗喉日时 | startDate, endDate (YYYY-MM-DD) | ⚠️ 需要 sxtwl |
 
@@ -67,7 +67,13 @@ python -m pytest tests/ --cov=app --cov-report=term-missing
 
 ### 八字计算示例
 
-**请求**:
+**参数说明**:
+- `year`, `month`, `day`, `hour`: 必填，出生年月日时
+- `isGregorian`: 可选，是否为公历（默认 `true`）。`true` 表示输入的是公历日期，`false` 表示输入的是农历日期
+- `isFemale`: 可选，是否为女性（默认 `false`）
+- `isLeap`: 可选，是否为闰月，仅在 `isGregorian=false` 时使用（默认 `false`）
+
+**公历日期示例（默认）**:
 ```json
 {
   "year": 1990,
@@ -79,7 +85,33 @@ python -m pytest tests/ --cov=app --cov-report=term-missing
 }
 ```
 
-**响应**:
+> 💡 **提示**: 由于大多数人使用公历，`isGregorian` 默认为 `true`。如果不指定，系统会将输入视为公历日期。
+
+**农历日期示例**:
+```json
+{
+  "year": 1990,
+  "month": 5,
+  "day": 15,
+  "hour": 14,
+  "isGregorian": true,
+  "isFemale": false
+}
+```
+
+**农历日期示例**:
+```json
+{
+  "year": 1990,
+  "month": 4,
+  "day": 21,
+  "hour": 14,
+  "isGregorian": false,
+  "isFemale": false
+}
+```
+
+**公历日期响应示例**:
 ```json
 {
   "success": true,

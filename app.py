@@ -548,7 +548,7 @@ def handle_bazi_request(params):
             return create_error_response(400, str(e), "ValidationError")
 
         # Parse optional boolean parameters
-        is_gregorian = str(params.get('isGregorian', params.get('g', 'false'))).lower() in ('true', '1', 'yes')
+        is_gregorian = str(params.get('isGregorian', params.get('g', 'true'))).lower() in ('true', '1', 'yes')
         is_leap = str(params.get('isLeap', params.get('r', 'false'))).lower() in ('true', '1', 'yes')
         is_female = str(params.get('isFemale', params.get('n', 'false'))).lower() in ('true', '1', 'yes')
 
