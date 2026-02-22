@@ -54,17 +54,6 @@ python -m pytest tests/ --cov=app --cov-report=term-missing
 
 部署前确保所有测试通过。
 
-## 📋 API 端点
-
-| 端点 | 方法 | 功能 | 参数 | 状态 |
-|------|------|------|------|------|
-| `/health` | GET | 健康检查 | 无 | ✅ |
-| `/bazi` | POST | 八字排盘 | year, month, day, hour, isGregorian (默认true公历), isFemale (默认false), isLeap (默认false) | ✅ |
-| `/shengxiao` | GET | 生肖合婚 | zodiac (鼠牛虎兔龙蛇马羊猴鸡狗猪) | ✅ |
-| `/luohou` | GET | 罗喉日时 | startDate, endDate (YYYY-MM-DD) | ⚠️ 需要 sxtwl |
-
-> **注意**: 罗喉功能需要 `sxtwl` 包，该包需要 C++ 编译环境。如不需要此功能，可跳过。
-
 ## 🔗 Lambda 直接调用
 
 除了通过 API Gateway 的 HTTP 调用，现在支持从另一个 Lambda 函数直接调用！
@@ -161,7 +150,24 @@ Lambda 会**自动识别**你要调用哪个服务（无需指定 path）：
 }
 ```
 
+## 📋 API 端点
+
+| 端点 | 方法 | 功能 | 参数 | 状态 |
+|------|------|------|------|------|
+| `/health` | GET | 健康检查 | 无 | ✅ |
+| `/bazi` | POST | 八字排盘 | year, month, day, hour, isGregorian (默认true公历), isFemale (默认false), isLeap (默认false) | ✅ |
+| `/shengxiao` | GET | 生肖合婚 | zodiac (鼠牛虎兔龙蛇马羊猴鸡狗猪) | ✅ |
+| `/luohou` | GET | 罗喉日时 | startDate, endDate (YYYY-MM-DD) | ⚠️ 需要 sxtwl |
+
+> **注意**: 罗喉功能需要 `sxtwl` 包，该包需要 C++ 编译环境。如不需要此功能，可跳过。
+
 ### 八字计算示例
+
+**请求**:
+```
+POST /bazi
+Content-Type: application/json
+```
 
 **参数说明**:
 - `year`, `month`, `day`, `hour`: 必填，出生年月日时
@@ -435,16 +441,6 @@ aws lambda update-function-configuration \
 - `IAMFullAccess`
 - `AmazonAPIGatewayAdministrator`
 
-## 💰 成本估算
-
-**10万次请求/月** (512MB, 2秒/请求):
-- Lambda: ~$1.67
-- API Gateway: ~$0.10
-- CloudWatch: ~$0.50
-- **总计: ~$2.27/月**
-
-前 100万次请求免费！
-
 ## 🎯 快速命令参考
 
 ```bash
@@ -464,8 +460,3 @@ git push origin master
 aws lambda get-function --function-name bazi-microservice \
   --query 'Configuration.FunctionArn'
 ```
-
----
-
-**Python**: 3.14+ | **AWS**: Lambda + API Gateway + CloudWatch
-
