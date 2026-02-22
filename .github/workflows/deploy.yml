@@ -273,10 +273,10 @@ jobs:
           fi
           
           # 创建或确认 stage
-          STAGE_NAME="$default"
+          STAGE_NAME="\$default"
           EXISTING_STAGE=$(aws apigatewayv2 get-stages \
             --api-id "$API_ID" \
-            --query "Items[?StageName=='$default'].StageName" \
+            --query "Items[?StageName=='\$default'].StageName" \
             --output text \
             --region "${{ secrets.AWS_REGION }}")
           
@@ -284,7 +284,7 @@ jobs:
             echo "创建并启用默认 stage..."
             aws apigatewayv2 create-stage \
               --api-id "$API_ID" \
-              --stage-name "$default" \
+              --stage-name "\$default" \
               --auto-deploy \
               --region "${{ secrets.AWS_REGION }}" > /dev/null
           else

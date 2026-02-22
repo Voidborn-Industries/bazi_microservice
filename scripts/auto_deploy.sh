@@ -506,7 +506,7 @@ deploy_api_gateway() {
         # 创建或确认 stage
         local existing_stage=$(aws apigatewayv2 get-stages \
             --api-id "$api_id" \
-            --query "Items[?StageName=='$default'].StageName" \
+            --query "Items[?StageName=='\$default'].StageName" \
             --output text \
             --region "$REGION")
 
@@ -514,7 +514,7 @@ deploy_api_gateway() {
             print_info "创建默认 stage..."
             aws apigatewayv2 create-stage \
                 --api-id "$api_id" \
-                --stage-name "$default" \
+                --stage-name "\$default" \
                 --auto-deploy \
                 --region "$REGION" > /dev/null
         else
