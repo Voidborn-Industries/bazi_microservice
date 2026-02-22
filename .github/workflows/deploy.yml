@@ -1,0 +1,351 @@
+name: Deploy to AWS Lambda
+
+on:
+  push:
+    branches:
+      - master
+      - main
+
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: '要部署的分支 (留空使用当前分支)'
+        required: false
+        default: ''
+
+env:
+  PYTHON_VERSION: '3.14'
+
+jobs:
+  deploy:
+    name: 部署到 AWS Lambda
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 检出代码
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
+
+      - name: 🐍 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: 📦 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 🔧 配置 AWS 凭证
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: ✅ 验证 AWS 连接
+        run: |
+          echo "AWS Account ID: $(aws sts get-caller-identity --query Account --output text)"
+          echo "AWS Region: ${{ secrets.AWS_REGION }}"
+
+      - name: 🏗️ 创建 Lambda Layer
+        id: create-layer
+        run: |
+          echo "创建 layer 目录..."
+          mkdir -p layer/python
+          
+          echo "安装依赖到 layer..."
+          pip install -r requirements.txt -t layer/python --quiet --upgrade
+          
+          echo "清理不必要的文件..."
+          find layer/python -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+          find layer/python -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
+          find layer/python -type d -name "*.dist-info" -exec rm -rf {} + 2>/dev/null || true
+          find layer/python -name "*.pyc" -delete 2>/dev/null || true
+          find layer/python -name "*.pyo" -delete 2>/dev/null || true
+          
+          echo "创建 layer ZIP..."
+          cd layer
+          zip -r9 ../layer.zip . -q
+          cd ..
+          
+          LAYER_SIZE=$(du -h layer.zip | cut -f1)
+          echo "Layer 大小: $LAYER_SIZE"
+          
+          echo "发布 Lambda Layer..."
+          LAYER_ARN=$(aws lambda publish-layer-version \
+            --layer-name "bazi-dependencies" \
+            --description "八字微服务依赖" \
+            --compatible-runtimes python${{ env.PYTHON_VERSION }} \
+            --zip-file fileb://layer.zip \
+            --region "${{ secrets.AWS_REGION }}" \
+            --query 'LayerVersionArn' \
+            --output text)
+          
+          echo "Layer ARN: $LAYER_ARN"
+          echo "layer_arn=$LAYER_ARN" >> $GITHUB_OUTPUT
+
+      - name: 📦 构建应用包
+        run: |
+          echo "创建 build 目录..."
+          mkdir -p build
+          
+          echo "复制源文件..."
+          cp app.py bazi.py common.py convert.py datas.py ganzhi.py \
+             luohou.py shengxiao.py sizi.py yue.py build/ 2>/dev/null || true
+          
+          echo "创建部署 ZIP..."
+          cd build
+          zip -r9 ../bazi-lambda.zip . -q
+          cd ..
+          
+          PACKAGE_SIZE=$(du -h bazi-lambda.zip | cut -f1)
+          echo "应用包大小: $PACKAGE_SIZE"
+
+      - name: 🔍 检查函数是否存在
+        id: check-function
+        continue-on-error: true
+        run: |
+          if aws lambda get-function --function-name "bazi-microservice" --region "${{ secrets.AWS_REGION }}" > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "函数已存在，将更新"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "函数不存在，将创建"
+          fi
+
+      - name: 🎭 创建 IAM 角色 (如果需要)
+        if: steps.check-function.outputs.exists != 'true'
+        run: |
+          ROLE_NAME="bazi-microservice-role"
+          
+          echo "检查角色是否存在..."
+          if ! aws iam get-role --role-name "$ROLE_NAME" > /dev/null 2>&1; then
+            echo "创建 IAM 角色..."
+            
+            TRUST_POLICY='{
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": {"Service": "lambda.amazonaws.com"},
+                "Action": "sts:AssumeRole"
+              }]
+            }'
+            
+            aws iam create-role \
+              --role-name "$ROLE_NAME" \
+              --assume-role-policy-document "$TRUST_POLICY" \
+              --description "八字微服务 Lambda 执行角色"
+            
+            aws iam attach-role-policy \
+              --role-name "$ROLE_NAME" \
+              --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+            
+            echo "等待角色生效..."
+            sleep 10
+          else
+            echo "角色已存在"
+          fi
+
+      - name: 🚀 部署 Lambda 函数
+        env:
+          LAYER_ARN: ${{ steps.create-layer.outputs.layer_arn }}
+        run: |
+          if [ "${{ steps.check-function.outputs.exists }}" == "true" ]; then
+            echo "更新现有函数..."
+            
+            # 更新代码
+            aws lambda update-function-code \
+              --function-name "${{ env.FUNCTION_NAME }}" \
+              --zip-file fileb://bazi-lambda.zip \
+              --region "${{ env.AWS_REGION }}"
+            
+            echo "等待函数更新完成..."
+            aws lambda wait function-updated \
+              --function-name "${{ env.FUNCTION_NAME }}" \
+              --region "${{ env.AWS_REGION }}"
+            
+            # 更新配置
+            aws lambda update-function-configuration \
+              --function-name "${{ env.FUNCTION_NAME }}" \
+              --layers "$LAYER_ARN" \
+              --timeout 30 \
+              --memory-size 512 \
+              --environment "Variables={STAGE=${{ github.event.inputs.environment || 'prod' }},LOG_LEVEL=INFO}" \
+              --region "${{ env.AWS_REGION }}"
+            
+            echo "✅ 函数更新成功"
+          else
+            echo "创建新函数..."
+            
+            ROLE_ARN=$(aws iam get-role \
+              --role-name "${{ env.FUNCTION_NAME }}-role" \
+              --query 'Role.Arn' \
+              --output text)
+            
+            aws lambda create-function \
+              --function-name "${{ env.FUNCTION_NAME }}" \
+              --runtime python${{ env.PYTHON_VERSION }} \
+              --role "$ROLE_ARN" \
+              --handler "app.lambda_handler" \
+              --zip-file fileb://bazi-lambda.zip \
+              --timeout 30 \
+              --memory-size 512 \
+              --description "八字排盘微服务 - Chinese Bazi Fortune-telling Service" \
+              --environment "Variables={STAGE=${{ github.event.inputs.environment || 'prod' }},LOG_LEVEL=INFO}" \
+              --layers "$LAYER_ARN" \
+              --region "${{ env.AWS_REGION }}"
+            
+            echo "✅ 函数创建成功"
+          fi
+
+      - name: 🌐 配置 API Gateway
+        id: api-gateway
+        run: |
+          # 检查 API 是否存在
+          API_ID=$(aws apigatewayv2 get-apis \
+            --query "Items[?Name=='bazi-api'].ApiId" \
+            --output text \
+            --region "${{ env.AWS_REGION }}")
+          
+          if [ -z "$API_ID" ]; then
+            echo "创建 HTTP API..."
+            
+            FUNCTION_ARN=$(aws lambda get-function \
+              --function-name "${{ env.FUNCTION_NAME }}" \
+              --region "${{ env.AWS_REGION }}" \
+              --query 'Configuration.FunctionArn' \
+              --output text)
+            
+            API_ID=$(aws apigatewayv2 create-api \
+              --name "bazi-api" \
+              --protocol-type HTTP \
+              --description "八字微服务 API" \
+              --cors-configuration "AllowOrigins=*,AllowMethods=*,AllowHeaders=*" \
+              --query 'ApiId' \
+              --output text \
+              --region "${{ env.AWS_REGION }}")
+            
+            # 创建集成
+            INTEGRATION_ID=$(aws apigatewayv2 create-integration \
+              --api-id "$API_ID" \
+              --integration-type AWS_PROXY \
+              --integration-uri "$FUNCTION_ARN" \
+              --payload-format-version 2.0 \
+              --query 'IntegrationId' \
+              --output text \
+              --region "${{ env.AWS_REGION }}")
+            
+            # 创建路由
+            for route in "GET /health" "GET /api/health" "POST /bazi" "POST /api/bazi" "GET /bazi" "GET /shengxiao" "GET /api/shengxiao" "GET /luohou" "GET /api/luohou" "OPTIONS /{proxy+}"; do
+              aws apigatewayv2 create-route \
+                --api-id "$API_ID" \
+                --route-key "$route" \
+                --target "integrations/$INTEGRATION_ID" \
+                --region "${{ env.AWS_REGION }}" > /dev/null
+            done
+            
+            # 授予权限
+            ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+            SOURCE_ARN="arn:aws:execute-api:${{ env.AWS_REGION }}:${ACCOUNT_ID}:${API_ID}/*/*"
+            
+            aws lambda add-permission \
+              --function-name "${{ env.FUNCTION_NAME }}" \
+              --statement-id "apigateway-invoke-$(date +%s)" \
+              --action lambda:InvokeFunction \
+              --principal apigateway.amazonaws.com \
+              --source-arn "$SOURCE_ARN" \
+              --region "${{ env.AWS_REGION }}" > /dev/null 2>&1 || true
+            
+            echo "✅ API Gateway 创建成功"
+          else
+            echo "使用现有 API: $API_ID"
+          fi
+          
+          API_ENDPOINT="https://${API_ID}.execute-api.${{ env.AWS_REGION }}.amazonaws.com"
+          echo "api_endpoint=$API_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "API 端点: $API_ENDPOINT"
+
+      - name: 🧪 测试部署
+        env:
+          API_ENDPOINT: ${{ steps.api-gateway.outputs.api_endpoint }}
+        run: |
+          echo "等待 API Gateway 生效..."
+          sleep 5
+          
+          echo "测试健康检查端点..."
+          HEALTH_RESPONSE=$(curl -s "${API_ENDPOINT}/health" || echo "请求失败")
+          
+          if echo "$HEALTH_RESPONSE" | grep -q "healthy"; then
+            echo "✅ 健康检查通过"
+            echo "$HEALTH_RESPONSE" | python3 -m json.tool || echo "$HEALTH_RESPONSE"
+          else
+            echo "⚠️ 健康检查响应异常"
+            echo "$HEALTH_RESPONSE"
+          fi
+
+      - name: 📊 部署摘要
+        env:
+          API_ENDPOINT: ${{ steps.api-gateway.outputs.api_endpoint }}
+        run: |
+          echo "================================"
+          echo "🎉 部署成功! Deployment Success!"
+          echo "================================"
+          echo ""
+          echo "📡 API 端点:"
+          echo "  健康检查: ${API_ENDPOINT}/health"
+          echo "  八字计算: ${API_ENDPOINT}/bazi"
+          echo "  生肖合婚: ${API_ENDPOINT}/shengxiao"
+          echo "  罗喉日时: ${API_ENDPOINT}/luohou"
+          echo ""
+          echo "🧪 测试命令:"
+          echo "  curl ${API_ENDPOINT}/health"
+          echo "  curl ${API_ENDPOINT}/shengxiao?zodiac=虎"
+          echo ""
+          echo "📝 CloudWatch 日志:"
+          echo "  aws logs tail /aws/lambda/${{ env.FUNCTION_NAME }} --follow"
+          echo ""
+
+      - name: 💬 添加评论到 PR (如果是 PR)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          API_ENDPOINT: ${{ steps.api-gateway.outputs.api_endpoint }}
+        with:
+          script: |
+            const apiEndpoint = process.env.API_ENDPOINT;
+            const comment = `## 🚀 部署成功！
+            
+            ### API 端点
+            - **健康检查**: \`${apiEndpoint}/health\`
+            - **八字计算**: \`${apiEndpoint}/bazi\`
+            - **生肖合婚**: \`${apiEndpoint}/shengxiao\`
+            - **罗喉日时**: \`${apiEndpoint}/luohou\`
+            
+            ### 测试命令
+            \`\`\`bash
+            # 健康检查
+            curl ${apiEndpoint}/health
+            
+            # 八字计算
+            curl -X POST ${apiEndpoint}/bazi \\
+              -H 'Content-Type: application/json' \\
+              -d '{"year":1990,"month":5,"day":15,"hour":14,"isGregorian":true}'
+            
+            # 生肖合婚
+            curl '${apiEndpoint}/shengxiao?zodiac=虎'
+            \`\`\`
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.name,
+              body: comment
+            });
+
+
+
+

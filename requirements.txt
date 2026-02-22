@@ -1,0 +1,9 @@
+bidict==0.23.1
+lunar_python==1.4.8
+colorama==0.4.6
+# sxtwl==2.0.7  # 需要 C++ 编译，罗喉功能可选，如需使用请在 Linux 环境编译
+
+# 测试依赖（开发环境）
+pytest>=7.0.0
+pytest-cov>=4.0.0
+

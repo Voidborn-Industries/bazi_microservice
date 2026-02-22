@@ -1,0 +1,15 @@
+# 配置文件模板
+# 复制此文件为 config.toml 并填入你的 AWS 信息
+# config.toml 已在 .gitignore 中，不会被提交到 git
+
+[aws]
+access_key_id = "YOUR_AWS_ACCESS_KEY_ID"
+secret_access_key = "YOUR_AWS_SECRET_ACCESS_KEY"
+region = "YOUR_AWS_REGION"  # 例如: us-east-1, ap-northeast-1
+
+[lambda]
+function_name = "bazi-microservice"
+layer_name = "bazi-dependencies"
+memory_size = 512
+timeout = 30
+
