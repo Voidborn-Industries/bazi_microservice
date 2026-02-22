@@ -215,7 +215,7 @@ create_layer() {
 
     local layer_arn=$(aws lambda publish-layer-version \
         --layer-name "$LAYER_NAME" \
-        --description "八字微服务依赖 (bidict, lunar_python, colorama)" \
+        --description "Bazi microservice dependencies (bidict, lunar_python, colorama)" \
         --compatible-runtimes "$PYTHON_VERSION" \
         --zip-file fileb://layer.zip \
         --region "$REGION" \
@@ -360,7 +360,7 @@ deploy_lambda() {
             --zip-file fileb://bazi-lambda.zip \
             --timeout $TIMEOUT \
             --memory-size $MEMORY_SIZE \
-            --description "八字排盘微服务 - Chinese Bazi Fortune-telling Service" \
+            --description "Bazi Chinese fortune-telling microservice" \
             $layer_param \
             --region "$REGION" \
             --output text > /dev/null
@@ -413,7 +413,7 @@ create_lambda_role() {
     aws iam create-role \
         --role-name "$role_name" \
         --assume-role-policy-document "$trust_policy" \
-        --description "八字微服务 Lambda 执行角色" \
+        --description "Bazi microservice Lambda execution role" \
         --output text > /dev/null
 
     # 附加基本执行策略
@@ -446,7 +446,7 @@ deploy_api_gateway() {
         api_id=$(aws apigatewayv2 create-api \
             --name "bazi-api" \
             --protocol-type HTTP \
-            --description "八字微服务 API" \
+            --description "Bazi microservice HTTP API" \
             --cors-configuration "AllowOrigins=*,AllowMethods=*,AllowHeaders=*" \
             --query 'ApiId' \
             --output text \

@@ -77,7 +77,7 @@ jobs:
           echo "发布 Lambda Layer..."
           LAYER_ARN=$(aws lambda publish-layer-version \
             --layer-name "bazi-dependencies" \
-            --description "八字微服务依赖" \
+            --description "Bazi microservice dependencies" \
             --compatible-runtimes python${{ env.PYTHON_VERSION }} \
             --zip-file fileb://layer.zip \
             --region "${{ secrets.AWS_REGION }}" \
@@ -137,7 +137,7 @@ jobs:
             aws iam create-role \
               --role-name "$ROLE_NAME" \
               --assume-role-policy-document "$TRUST_POLICY" \
-              --description "八字微服务 Lambda 执行角色"
+              --description "Bazi microservice Lambda execution role"
             
             aws iam attach-role-policy \
               --role-name "$ROLE_NAME" \
@@ -186,16 +186,16 @@ jobs:
               --output text)
             
             aws lambda create-function \
-              --function-name "${{ env.FUNCTION_NAME }}" \
+              --function-name "bazi-microservice" \
               --runtime python${{ env.PYTHON_VERSION }} \
               --role "$ROLE_ARN" \
               --handler "app.lambda_handler" \
               --zip-file fileb://bazi-lambda.zip \
               --timeout 30 \
               --memory-size 512 \
-              --description "八字排盘微服务 - Chinese Bazi Fortune-telling Service" \
-              --environment "Variables={STAGE=${{ github.event.inputs.environment || 'prod' }},LOG_LEVEL=INFO}" \
+              --description "Bazi Chinese fortune-telling microservice" \
               --layers "$LAYER_ARN" \
+              --region "${{ secrets.AWS_REGION }}"
               --region "${{ env.AWS_REGION }}"
             
             echo "✅ 函数创建成功"
@@ -222,11 +222,11 @@ jobs:
             API_ID=$(aws apigatewayv2 create-api \
               --name "bazi-api" \
               --protocol-type HTTP \
-              --description "八字微服务 API" \
+              --description "Bazi microservice HTTP API" \
               --cors-configuration "AllowOrigins=*,AllowMethods=*,AllowHeaders=*" \
               --query 'ApiId' \
               --output text \
-              --region "${{ env.AWS_REGION }}")
+              --region "${{ secrets.AWS_REGION }}")
             
             # 创建集成
             INTEGRATION_ID=$(aws apigatewayv2 create-integration \
