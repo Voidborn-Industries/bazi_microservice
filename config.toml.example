@@ -3,13 +3,28 @@
 # config.toml 已在 .gitignore 中，不会被提交到 git
 
 [aws]
+# AWS 访问密钥（必填）
 access_key_id = "YOUR_AWS_ACCESS_KEY_ID"
 secret_access_key = "YOUR_AWS_SECRET_ACCESS_KEY"
-region = "YOUR_AWS_REGION"  # 例如: us-east-1, ap-northeast-1
+# AWS 区域（必填）例如: us-east-1, ap-northeast-1
+region = "YOUR_AWS_REGION"
 
 [lambda]
+# Lambda 函数名称（可选，默认: bazi-microservice）
 function_name = "bazi-microservice"
+# Lambda Layer 名称（可选，默认: bazi-dependencies）
 layer_name = "bazi-dependencies"
+# Lambda 内存大小（MB）- 推荐 512-1024
 memory_size = 1024
+# Lambda 超时时间（秒）- 推荐 30-900
 timeout = 900
+
+# 注意：以下配置在脚本中是固定的，与 GitHub Actions 保持一致：
+# - PYTHON_VERSION: python3.14
+# - LAMBDA_HANDLER: app.lambda_handler
+# - API_NAME: bazi-api
+# - LAMBDA_DESCRIPTION: Bazi Chinese fortune-telling microservice
+# - LAYER_DESCRIPTION: Bazi microservice dependencies
+# - API_DESCRIPTION: Bazi microservice HTTP API
+
 

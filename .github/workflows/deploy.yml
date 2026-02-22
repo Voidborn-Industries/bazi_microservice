@@ -272,6 +272,25 @@ jobs:
             echo "使用现有 API: $API_ID"
           fi
           
+          # 创建或确认 stage
+          STAGE_NAME="$default"
+          EXISTING_STAGE=$(aws apigatewayv2 get-stages \
+            --api-id "$API_ID" \
+            --query "Items[?StageName=='$default'].StageName" \
+            --output text \
+            --region "${{ secrets.AWS_REGION }}")
+          
+          if [ -z "$EXISTING_STAGE" ]; then
+            echo "创建并启用默认 stage..."
+            aws apigatewayv2 create-stage \
+              --api-id "$API_ID" \
+              --stage-name "$default" \
+              --auto-deploy \
+              --region "${{ secrets.AWS_REGION }}" > /dev/null
+          else
+            echo "Stage 已存在: $EXISTING_STAGE"
+          fi
+          
           API_ENDPOINT="https://${API_ID}.execute-api.${{ secrets.AWS_REGION }}.amazonaws.com"
           echo "api_endpoint=$API_ENDPOINT" >> $GITHUB_OUTPUT
           echo "API 端点: $API_ENDPOINT"
@@ -353,7 +372,4 @@ jobs:
               repo: context.repo.name,
               body: comment
             });
-
-
-
 

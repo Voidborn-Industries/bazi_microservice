@@ -61,7 +61,14 @@ export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
 export AWS_DEFAULT_REGION=$REGION
 
+# 固定配置（与 GitHub Actions 一致）
 PYTHON_VERSION="python3.14"
+LAMBDA_HANDLER="app.lambda_handler"
+API_NAME="bazi-api"
+LAMBDA_DESCRIPTION="Bazi Chinese fortune-telling microservice"
+LAYER_DESCRIPTION="Bazi microservice dependencies"
+API_DESCRIPTION="Bazi microservice HTTP API"
+IAM_POLICY_ARN="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 
 # 打印带颜色的消息
 print_message() {
@@ -215,7 +222,7 @@ create_layer() {
 
     local layer_arn=$(aws lambda publish-layer-version \
         --layer-name "$LAYER_NAME" \
-        --description "Bazi microservice dependencies (bidict, lunar_python, colorama)" \
+        --description "$LAYER_DESCRIPTION" \
         --compatible-runtimes "$PYTHON_VERSION" \
         --zip-file fileb://layer.zip \
         --region "$REGION" \
@@ -356,11 +363,11 @@ deploy_lambda() {
             --function-name "$FUNCTION_NAME" \
             --runtime "$PYTHON_VERSION" \
             --role "$role_arn" \
-            --handler "app.lambda_handler" \
+            --handler "$LAMBDA_HANDLER" \
             --zip-file fileb://bazi-lambda.zip \
             --timeout $TIMEOUT \
             --memory-size $MEMORY_SIZE \
-            --description "Bazi Chinese fortune-telling microservice" \
+            --description "$LAMBDA_DESCRIPTION" \
             $layer_param \
             --region "$REGION" \
             --output text > /dev/null
@@ -413,13 +420,13 @@ create_lambda_role() {
     aws iam create-role \
         --role-name "$role_name" \
         --assume-role-policy-document "$trust_policy" \
-        --description "Bazi microservice Lambda execution role" \
+        --description "$LAMBDA_DESCRIPTION" \
         --output text > /dev/null
 
     # 附加基本执行策略
     aws iam attach-role-policy \
         --role-name "$role_name" \
-        --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        --policy-arn "$IAM_POLICY_ARN"
 
     print_success "IAM 角色创建成功"
 }
@@ -430,7 +437,7 @@ deploy_api_gateway() {
 
     # 检查 API 是否存在
     local api_id=$(aws apigatewayv2 get-apis \
-        --query "Items[?Name=='bazi-api'].ApiId" \
+        --query "Items[?Name=='$API_NAME'].ApiId" \
         --output text \
         --region "$REGION")
 
@@ -444,9 +451,9 @@ deploy_api_gateway() {
             --output text)
 
         api_id=$(aws apigatewayv2 create-api \
-            --name "bazi-api" \
+            --name "$API_NAME" \
             --protocol-type HTTP \
-            --description "Bazi microservice HTTP API" \
+            --description "$API_DESCRIPTION" \
             --cors-configuration "AllowOrigins=*,AllowMethods=*,AllowHeaders=*" \
             --query 'ApiId' \
             --output text \
@@ -495,6 +502,24 @@ deploy_api_gateway() {
 
             print_success "创建路由: $route"
         done
+
+        # 创建或确认 stage
+        local existing_stage=$(aws apigatewayv2 get-stages \
+            --api-id "$api_id" \
+            --query "Items[?StageName=='$default'].StageName" \
+            --output text \
+            --region "$REGION")
+
+        if [ -z "$existing_stage" ]; then
+            print_info "创建默认 stage..."
+            aws apigatewayv2 create-stage \
+                --api-id "$api_id" \
+                --stage-name "$default" \
+                --auto-deploy \
+                --region "$REGION" > /dev/null
+        else
+            print_info "Stage 已存在: $existing_stage"
+        fi
 
         # 授予 API Gateway 调用权限
         print_info "授予 API Gateway 调用权限..."
@@ -611,6 +636,8 @@ main() {
 
 # 运行主函数
 main "$@"
+
+
 
 
 
