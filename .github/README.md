@@ -65,6 +65,102 @@ python -m pytest tests/ --cov=app --cov-report=term-missing
 
 > **注意**: 罗喉功能需要 `sxtwl` 包，该包需要 C++ 编译环境。如不需要此功能，可跳过。
 
+## 🔗 Lambda 直接调用
+
+除了通过 API Gateway 的 HTTP 调用，现在支持从另一个 Lambda 函数直接调用！
+
+### 快速示例
+
+```python
+import json
+import boto3
+
+lambda_client = boto3.client('lambda', region_name='us-east-1')
+
+# 准备输入数据（直接传 JSON，会自动识别是八字服务）
+bazi_input = {
+    "service": "bazi",  # 可选，自动识别也可不写
+    "year": 1990,
+    "month": 9,
+    "day": 11,
+    "hour": 11,
+    "isGregorian": True,
+    "isFemale": False,
+}
+
+# 调用 bazi Lambda
+response = lambda_client.invoke(
+    FunctionName='bazi-microservice',  # 或使用 ARN
+    InvocationType='RequestResponse',
+    Payload=json.dumps(bazi_input)  # 注意：不需要 .encode('utf-8')
+)
+
+# 解析结果（直接返回 JSON，无需处理 HTTP 格式）
+bazi_output = json.loads(response['Payload'].read().decode('utf-8'))
+
+if bazi_output['success']:
+    print(f"八字: {bazi_output['data']['bazi']['full']}")
+    print(f"生肖: {bazi_output['data']['zodiac']['year']}")
+```
+
+### 服务识别规则
+
+Lambda 会**自动识别**你要调用哪个服务（无需指定 path）：
+
+| 参数 | 识别为 | 示例 |
+|------|--------|------|
+| `year` + `month` + `day` + `hour` | 八字服务 | `{"year": 1990, "month": 9, "day": 11, "hour": 11}` |
+| `zodiac` 或 `shengxiao` | 生肖服务 | `{"zodiac": "虎"}` |
+| `startDate` 或 `start` | 罗喉服务 | `{"startDate": "2026-02-01"}` |
+
+**可选**：也可以明确指定 `service` 参数：
+```python
+{"service": "bazi", "year": 1990, "month": 9, "day": 11, "hour": 11}
+```
+
+### 优势
+
+- ✅ **更低延迟** - 跳过 API Gateway，直接 Lambda to Lambda 调用
+- ✅ **更简单** - 无需处理 HTTP 请求/响应格式，直接传 JSON
+- ✅ **自动识别** - 根据参数自动判断服务类型，无需指定 path
+- ✅ **内部服务** - 无需公开 API，更安全
+
+### 响应格式对比
+
+**API Gateway 调用**（HTTP 格式）:
+```json
+{
+  "statusCode": 200,
+  "headers": {...},
+  "body": "{\"success\": true, \"data\": {...}}"
+}
+```
+
+**直接 Lambda 调用**（纯 JSON）:
+```json
+{
+  "success": true,
+  "data": {
+    "bazi": {"full": "庚午 甲申 癸未 甲午", ...},
+    "zodiac": {"year": "马", ...},
+    ...
+  },
+  "timestamp": "2026-02-22T10:00:00Z"
+}
+```
+
+### IAM 权限
+
+调用方 Lambda 需要有以下权限：
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "lambda:InvokeFunction",
+  "Resource": "arn:aws:lambda:REGION:ACCOUNT:function:bazi-microservice"
+}
+```
+
 ### 八字计算示例
 
 **参数说明**:

@@ -10,6 +10,35 @@ Provides REST API endpoints for Chinese fortune-telling services
 Python 版本: 3.14+
 作者: 资深工程师团队
 Author: Senior Engineering Team
+
+调用方式 / Invocation Methods:
+=============================
+
+1. API Gateway 调用 (HTTP REST API)
+   - 自动检测：event 包含 'httpMethod' 或 'requestContext'
+   - 返回格式：HTTP 响应 {statusCode, headers, body}
+   - 示例：通过 API Gateway 的 HTTP 端点访问
+
+2. 直接 Lambda 调用 (Lambda to Lambda)
+   - 自动检测：event 不包含 'httpMethod' 或 'requestContext'
+   - 返回格式：纯 JSON {success, data, timestamp}
+   - 服务识别规则：
+     * 有 year + month + day + hour 参数 → 八字服务
+     * 有 zodiac 或 shengxiao 参数 → 生肖服务
+     * 有 startDate 或 start 参数 → 罗喉服务
+     * 或明确指定 service 参数（"bazi", "shengxiao", "luohou"）
+
+   示例：
+   ```python
+   import json, boto3
+   lambda_client = boto3.client('lambda')
+   response = lambda_client.invoke(
+       FunctionName='bazi-microservice',
+       Payload=json.dumps({"year": 1990, "month": 9, "day": 11, "hour": 11})
+   )
+   result = json.loads(response['Payload'].read())
+   print(result['data']['bazi']['full'])  # 庚午 甲申 癸未 甲午
+   ```
 """
 
 import json
@@ -435,18 +464,105 @@ def lambda_handler(event, context):
     """
     AWS Lambda handler function - main entry point
 
+    Supports two invocation modes:
+    1. API Gateway: event contains httpMethod, path, body, etc.
+    2. Direct Lambda invoke: event contains the request parameters directly
+
     Args:
         event: Lambda event object
         context: Lambda context object
 
     Returns:
-        dict: API Gateway response
+        dict: API Gateway response or direct response
     """
     logger.info("="*80)
     logger.info("[LAMBDA] Handler invoked")
     logger.info(f"[LAMBDA] Event: {json.dumps(event)}")
 
     try:
+        # Detect invocation source
+        is_api_gateway = 'httpMethod' in event or 'requestContext' in event
+        logger.info(f"[LAMBDA] Invocation type: {'API Gateway' if is_api_gateway else 'Direct Lambda'}")
+
+        # Direct Lambda invocation (from another Lambda)
+        if not is_api_gateway:
+            logger.info("[LAMBDA] Processing direct Lambda invocation")
+
+            # 方式 1: 通过参数自动识别服务类型
+            # 如果有 year, month, day, hour 参数 -> 八字服务
+            if all(k in event for k in ['year', 'month', 'day', 'hour']):
+                logger.info("[LAMBDA] Detected Bazi service (has year/month/day/hour)")
+                result = BaziService.calculate_bazi(
+                    year=event['year'],
+                    month=event['month'],
+                    day=event['day'],
+                    hour=event['hour'],
+                    is_gregorian=event.get('isGregorian', True),
+                    is_leap=event.get('isLeap', False),
+                    is_female=event.get('isFemale', False)
+                )
+                return {
+                    'success': True,
+                    'data': result,
+                    'timestamp': datetime.now(UTC).isoformat()
+                }
+
+            # 如果有 zodiac 参数 -> 生肖服务
+            elif 'zodiac' in event or 'shengxiao' in event:
+                logger.info("[LAMBDA] Detected Shengxiao service (has zodiac)")
+                zodiac = event.get('zodiac', event.get('shengxiao'))
+                result = ShengxiaoService.get_compatibility(zodiac)
+                return {
+                    'success': True,
+                    'data': result,
+                    'timestamp': datetime.now(UTC).isoformat()
+                }
+
+            # 如果有 startDate/endDate 参数 -> 罗喉服务
+            elif 'startDate' in event or 'start' in event:
+                logger.info("[LAMBDA] Detected Luohou service (has startDate)")
+                result = handle_luohou_request(event)
+                return json.loads(result['body']) if 'body' in result else result
+
+            # 方式 2: 明确指定 service 参数（可选）
+            # 例如: {"service": "bazi", "year": 1990, ...}
+            elif 'service' in event:
+                service_type = event['service']
+                logger.info(f"[LAMBDA] Explicit service type: {service_type}")
+
+                if service_type == 'bazi':
+                    result = handle_bazi_request(event)
+                    return json.loads(result['body']) if 'body' in result else result
+                elif service_type == 'shengxiao':
+                    result = handle_shengxiao_request(event)
+                    return json.loads(result['body']) if 'body' in result else result
+                elif service_type == 'luohou':
+                    result = handle_luohou_request(event)
+                    return json.loads(result['body']) if 'body' in result else result
+                else:
+                    logger.error(f"[LAMBDA] Unknown service type: {service_type}")
+                    return {
+                        'success': False,
+                        'error': {
+                            'type': 'InvalidService',
+                            'message': f'Unknown service type: {service_type}. Use "bazi", "shengxiao", or "luohou"'
+                        },
+                        'timestamp': datetime.now(UTC).isoformat()
+                    }
+
+            # 无法识别的请求
+            else:
+                logger.error("[LAMBDA] Cannot determine service type from event")
+                return {
+                    'success': False,
+                    'error': {
+                        'type': 'InvalidRequest',
+                        'message': 'Cannot determine service type. Please provide: year/month/day/hour (bazi), zodiac (shengxiao), or startDate (luohou)'
+                    },
+                    'timestamp': datetime.now(UTC).isoformat()
+                }
+
+        # API Gateway invocation
         # Handle OPTIONS request for CORS preflight
         http_method = event.get('httpMethod', event.get('requestContext', {}).get('http', {}).get('method', 'POST'))
 
