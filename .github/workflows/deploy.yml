@@ -30,6 +30,7 @@ jobs:
   deploy:
     name: 部署到 AWS Lambda
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: 📥 检出代码
